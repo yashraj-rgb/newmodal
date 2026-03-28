@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Yashverse Hunt | Mobile Ready</title>
+    <style>
+        :root {
+            --bg-dark: #070a14;
+            --hud-green: #39FF14;
+        }
+
+        /* Prevent scrolling/zooming on mobile while playing */
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            color: #ffffff;
+            font-family: 'Courier New', Courier, monospace;
+            touch-action: none; 
+        }
+
+        #gameCanvas { width: 100%; height: 100%; display: block; }
+
+        /* HUDs */
+        .hud-top-left {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(10, 15, 30, 0.8); border: 1px solid var(--hud-green);
+            padding: 8px 12px; border-radius: 6px; font-size: 0.8rem;
+            pointer-events: none; box-shadow: 0 0 10px rgba(57, 255, 20, 0.3);
+        }
+
+        .hud-top-right {
+            position: absolute; top: 10px; right: 10px;
+            background: rgba(10, 15, 30, 0.8); border: 1px solid #a855f7;
+            padding: 8px 12px; border-radius: 6px; font-size: 0.8rem;
+            min-width: 120px; pointer-events: none;
+        }
+
+        .hud-title { color: #a855f7; font-weight: bold; margin-bottom: 5px; }
+        .found-code { color: var(--hud-green); font-weight: bold; }
+
+        /* --- MOBILE CONTROLS (HUD) --- */
+        #mobile-controls {
+            display: none; /* Hidden by default (for Desktop) */
+            position: absolute; bottom: 20px; left: 0; width: 100%;
+            padding: 0 15px; box-sizing: border-box;
+            justify-content: space-between; align-items: flex-end;
+            pointer-events: none; /* Let clicks pass through empty spaces */
+        }
+
+        .d-pad, .action-pad {
+            display: flex; flex-direction: column; align-items: center; gap: 5px;
+        }
+
+        .d-pad-row { display: flex; gap: 5px; }
+
+        /* The Virtual Buttons */
+        .ctrl-btn {
+            pointer-events: auto; /* Buttons should be clickable */
+            background: rgba(57, 255, 20, 0.1);
+            border: 2px solid var(--hud-green);
+            color: var(--hud-green);
+            width: 55px; height: 55px; border-radius: 50%;
+            font-size: 20px; font-weight: bold;
+            display: flex; justify-content: center; align-items: center;
+            user-select: none; -webkit-user-select: none;
+        }
+
+        .action-btn { width: 70px; height: 55px; border-radius: 12px; font-size: 14px; }
+        
+        .warp-btn { border-color: #00ffff; color: #00ffff; background: rgba(0, 255, 255, 0.1); }
+        .brake-btn { border-color: #ef4444; color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+
+        /* Show controls ONLY on screens smaller than 768px (Phones/Tablets) */
+        @media (max-width: 768px) {
+            #mobile-controls { display: flex; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div class="hud-top-left">
+        <span style="color: var(--hud-green)">[STATUS: HUNTING]</span><br>
+        X: <span id="tele-x">1450</span> | Y: <span id="tele-y">-320</span>
+    </div>
+
+    <div class="hud-top-right">
+        <div class="hud-title">INVENTORY</div>
+        <div id="inventory">
+            <div style="color: #64748b; font-size: 0.7rem;">Find glowing eggs...</div>
+        </div>
+    </div>
+
+    <div id="mobile-controls">
+        <div class="d-pad">
+            <div class="ctrl-btn" id="btn-w">🚀</div>
+            <div class="d-pad-row">
+                <div class="ctrl-btn" id="btn-a">↺</div>
+                <div class="ctrl-btn" id="btn-s">🛑</div>
+                <div class="ctrl-btn" id="btn-d">↻</div>
+            </div>
+        </div>
+
+        <div class="action-pad">
+            <div class="ctrl-btn action-btn warp-btn" id="btn-shift">WARP</div>
+            <div class="ctrl-btn action-btn brake-btn" id="btn-space">BRAKE</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Player Physics
+        const player = {
+            x: 1450, y: -320, vx: 0, vy: 0, angle: -Math.PI / 2, 
+            thrust: 0.8, friction: 0.92, maxSpeed: 15
+        };
+
+        const keys = { w: false, a: false, s: false, d: false, shift: false, space: false };
+
+        // --- KEYBOARD CONTROLS (For Desktop) ---
+        window.addEventListener('keydown', (e) => {
+            if(e.key === 'w' || e.key === 'ArrowUp') keys.w = true;
+            if(e.key === 's' || e.key === 'ArrowDown') keys.s = true;
+            if(e.key === 'a' || e.key === 'ArrowLeft') keys.a = true;
+            if(e.key === 'd' || e.key === 'ArrowRight') keys.d = true;
+            if(e.key === 'Shift') keys.shift = true;
+            if(e.key === ' ') keys.space = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            if(e.key === 'w' || e.key === 'ArrowUp') keys.w = false;
+            if(e.key === 's' || e.key === 'ArrowDown') keys.s = false;
+            if(e.key === 'a' || e.key === 'ArrowLeft') keys.a = false;
+            if(e.key === 'd' || e.key === 'ArrowRight') keys.d = false;
+            if(e.key === 'Shift') keys.shift = false;
+            if(e.key === ' ') keys.space = false;
+        });
+
+        // --- TOUCH CONTROLS (For Mobile) ---
+        const bindTouch = (btnId, keyName, color) => {
+            const btn = document.getElementById(btnId);
+            btn.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Prevents screen zooming/scrolling
+                keys[keyName] = true;
+                btn.style.background = color; // Highlight button
+            }, { passive: false });
+
+            btn.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                keys[keyName] = false;
+                btn.style.background = 'rgba(0,0,0,0.2)'; // Remove highlight
+            }, { passive: false });
+        };
+
+        bindTouch('btn-w', 'w', 'rgba(57, 255, 20, 0.5)');
+        bindTouch('btn-a', 'a', 'rgba(57, 255, 20, 0.5)');
+        bindTouch('btn-s', 's', 'rgba(57, 255, 20, 0.5)');
+        bindTouch('btn-d', 'd', 'rgba(57, 255, 20, 0.5)');
+        bindTouch('btn-shift', 'shift', 'rgba(0, 255, 255, 0.5)'); // Cyan for Warp
+        bindTouch('btn-space', 'space', 'rgba(239, 68, 68, 0.5)'); // Red for Brake
+
+        // Eggs Data
+        const eggs = [
+            { id: 'calc', x: 82, y: -82, name: 'Calculator', code: '50N1C', color: '#cbd5e1', found: false },
+            { id: 'rank1', x: 1, y: 1, name: 'Rank 1', code: 'RANK1', color: '#facc15', found: false },
+            { id: 'sonic', x: 50, y: 100, name: 'SonicStack', code: 'H1RE_M3', color: '#a855f7', found: false },
+            { id: 'troll', x: 404, y: 404, name: 'Sem 1 Result', code: '404_N0T_F0UND', color: '#ef4444', found: false }
+        ];
+
+        const stars = Array.from({ length: 400 }, () => ({
+            x: Math.random() * 5000 - 2500, y: Math.random() * 5000 - 2500, size: Math.random() * 2
+        }));
+
+        function updatePlayer() {
+            if (keys.a) player.angle -= 0.08;
+            if (keys.d) player.angle += 0.08;
+
+            let currentThrust = keys.shift ? player.thrust * 2.5 : player.thrust;
+            if (keys.w) {
+                player.vx += Math.cos(player.angle) * currentThrust;
+                player.vy += Math.sin(player.angle) * currentThrust;
+            }
+            if (keys.s) {
+                player.vx -= Math.cos(player.angle) * (player.thrust * 0.5);
+                player.vy -= Math.sin(player.angle) * (player.thrust * 0.5);
+            }
+            if (keys.space) {
+                player.vx *= 0.85; player.vy *= 0.85;
+            }
+
+            eggs.forEach(egg => {
+                if (!egg.found) {
+                    let dx = egg.x - player.x, dy = egg.y - player.y;
+                    let dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    if (dist < 120 && dist > 20) {
+                        player.vx += (dx / dist) * 0.15; player.vy += (dy / dist) * 0.15;
+                    }
+                    if (dist < 40) {
+                        egg.found = true; updateInventoryHUD();
+                    }
+                }
+            });
+
+            player.vx *= player.friction; player.vy *= player.friction;
+
+            const speed = Math.sqrt(player.vx ** 2 + player.vy ** 2);
+            if (speed > player.maxSpeed) {
+                player.vx = (player.vx / speed) * player.maxSpeed;
+                player.vy = (player.vy / speed) * player.maxSpeed;
+            }
+
+            player.x += player.vx; player.y += player.vy;
+        }
+
+        function drawScene() {
+            ctx.fillStyle = "#070a14"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            const offsetX = canvas.width / 2 - player.x, offsetY = canvas.height / 2 - player.y;
+
+            ctx.fillStyle = "#ffffff";
+            stars.forEach(star => {
+                let stretch = keys.shift && keys.w ? 8 : 1; 
+                ctx.beginPath();
+                ctx.arc(star.x + offsetX * 0.5, star.y + offsetY * 0.5, star.size, 0, Math.PI * 2);
+                ctx.fill();
+                if(stretch > 1) {
+                    ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.beginPath();
+                    ctx.moveTo(star.x + offsetX * 0.5, star.y + offsetY * 0.5);
+                    ctx.lineTo((star.x + offsetX * 0.5) - player.vx * stretch, (star.y + offsetY * 0.5) - player.vy * stretch);
+                    ctx.stroke();
+                }
+            });
+
+            eggs.forEach(egg => {
+                let drawX = egg.x + offsetX, drawY = egg.y + offsetY;
+                if (!egg.found) {
+                    ctx.save(); ctx.shadowBlur = 20; ctx.shadowColor = egg.color;
+                    ctx.fillStyle = egg.color; ctx.beginPath();
+                    ctx.ellipse(drawX, drawY, 15, 22, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+                    ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.font = "12px monospace"; ctx.textAlign = "center";
+                    ctx.fillText(egg.name, drawX, drawY - 35);
+                } else {
+                    ctx.save(); ctx.shadowBlur = 10; ctx.shadowColor = egg.color;
+                    ctx.fillStyle = egg.color; ctx.font = "bold 16px monospace"; ctx.textAlign = "center";
+                    ctx.fillText(egg.code, drawX, drawY); ctx.restore();
+                }
+            });
+
+            ctx.save(); ctx.translate(canvas.width / 2, canvas.height / 2); ctx.rotate(player.angle);
+            if (keys.w) {
+                ctx.fillStyle = keys.shift ? "#00ffff" : "#ff4500"; ctx.beginPath();
+                ctx.moveTo(-10, 5); ctx.lineTo(-25 - Math.random() * 10, 0); ctx.lineTo(-10, -5); ctx.fill();
+            }
+            if (keys.s) {
+                ctx.fillStyle = "#ff4500"; ctx.beginPath();
+                ctx.moveTo(15, 5); ctx.lineTo(25 + Math.random() * 5, 0); ctx.lineTo(15, -5); ctx.fill();
+            }
+            ctx.fillStyle = "#39FF14"; ctx.beginPath();
+            ctx.moveTo(20, 0); ctx.lineTo(-15, 15); ctx.lineTo(-10, 0); ctx.lineTo(-15, -15); ctx.closePath(); ctx.fill();
+            ctx.restore();
+        }
+
+        function updateInventoryHUD() {
+            const invDiv = document.getElementById('inventory');
+            invDiv.innerHTML = ''; 
+            eggs.forEach(egg => {
+                if (egg.found) invDiv.innerHTML += `<div style="margin: 3px 0; color:#fff;">${egg.name}: <span class="found-code">${egg.code}</span></div>`;
+            });
+        }
+
+        function updateTelemetria() {
+            document.getElementById('tele-x').innerText = Math.round(player.x);
+            document.getElementById('tele-y').innerText = Math.round(player.y);
+        }
+
+        // Handle window resize dynamically
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+        });
+
+        function gameLoop() {
+            updatePlayer(); drawScene(); updateTelemetria(); requestAnimationFrame(gameLoop);
+        }
+
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
